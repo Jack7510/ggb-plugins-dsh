@@ -1,3 +1,6 @@
+> Generated artifacts for the DSH package `ggb-plugins-dsh` 0.8.5.
+> Source, issues and the MIT license: https://github.com/Jack7510/ggb-plugins (directory `dsh/`).
+
 # ggb-plugins
 
 **English** | [简体中文](README.zh-CN.md)
