@@ -1,0 +1,99 @@
+{
+  "name": "ggb-plugins-dsh",
+  "version": "0.8.5",
+  "private": false,
+  "type": "module",
+  "description": "GeoGebra construction Skill and verified delivery CLI for DeepSeek Harness",
+  "license": "MIT",
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0",
+    "dsh": ">=0.2.1-rc.2 <0.2.2"
+  },
+  "packageManager": "pnpm@11.7.0",
+  "scripts": {
+    "ggb": "node dist/src/cli.js",
+    "preview": "node dist/src/cli.js preview",
+    "setup:plugin": "node scripts/setup-plugin.mjs",
+    "setup:runtime": "node scripts/setup-runtime.mjs"
+  },
+  "dependencies": {
+    "playwright": "1.64.1"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.5",
+    "typescript": "7.0.2"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Jack7510/ggb-plugins.git",
+    "directory": "dsh"
+  },
+  "homepage": "https://github.com/Jack7510/ggb-plugins/tree/main/dsh",
+  "bugs": {
+    "url": "https://github.com/Jack7510/ggb-plugins/issues"
+  },
+  "exports": {
+    ".": "./index.js",
+    "./package.json": "./package.json",
+    "./server": "./dsh/server.js",
+    "./server.patch.yml": "./dsh/server.patch.yml",
+    "./installation": "./dsh/installation.js",
+    "./schemas": {
+      "types": "./dist/src/host-protocol.d.ts",
+      "default": "./dist/src/host-protocol.js"
+    },
+    "./runtime-compatibility": "./dist/src/runtime-compatibility.js",
+    "./cli": "./dist/src/cli.js",
+    "./delivery-contract": "./dist/src/delivery-contract.js",
+    "./executor": "./dsh/executor.js",
+    "./execution-schemas": {
+      "types": "./dist/src/execution-contract.d.ts",
+      "default": "./dist/src/execution-contract.js"
+    },
+    "./drafts": {
+      "types": "./dist/src/draft-requests.d.ts",
+      "default": "./dist/src/draft-requests.js"
+    }
+  },
+  "files": [
+    "index.js",
+    "cordis.patch.yml",
+    "locale",
+    "README.md",
+    "README.zh-CN.md",
+    "INSTALL.md",
+    "dist/src/*.js",
+    "viewer/index.html",
+    "scripts/setup-plugin.mjs",
+    "scripts/setup-runtime.mjs",
+    "skills/ggb-construction/SKILL.md",
+    "skills/ggb-construction/worker.md",
+    "skills/ggb-construction/references",
+    "capabilities.json",
+    "dependencies.lock",
+    "runtime.lock.json",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md",
+    "dsh/server.js",
+    "dsh/server.patch.yml",
+    "dsh/installation.js",
+    "dist/src/*.d.ts",
+    "dsh/executor.js",
+    "dsh/request-schema.js",
+    "source"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "geogebra",
+    "geometry",
+    "mathematics",
+    "math-education",
+    "education"
+  ]
+}

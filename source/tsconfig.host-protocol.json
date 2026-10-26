@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "rootDir": "src",
+    "outDir": "dist/src"
+  },
+  "include": [
+    "src/host-protocol.ts",
+    "src/execution-contract.ts",
+    "src/draft-requests.ts"
+  ],
+  "exclude": [
+    "tests"
+  ]
+}

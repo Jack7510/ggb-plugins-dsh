@@ -1,0 +1,185 @@
+/** @fileoverview Resolves the installed bundle's public server resources. */
+import {createHash} from 'node:crypto';
+import {readFileSync, realpathSync, statSync} from 'node:fs';
+import {dirname, join, sep} from 'node:path';
+import {fileURLToPath} from 'node:url';
+import {EXECUTOR_PROTOCOL_VERSION} from '../dist/src/execution-contract.js';
+import {assertDshCompatibility, HOST_PROTOCOL_VERSION,
+  RECEIPT_SCHEMA_VERSION, SUPPORTED_DSH_VERSIONS, TOOL_NAMES,
+  REFERENCE_IDS, REFERENCE_SECTIONS,
+  PRELOADED_REFERENCE_TOPICS, LIMITS, parseReferenceTopics,
+} from '../dist/src/host-protocol.js';
+
+/** Resolve only this complete installed bundle; never another client's cache.
+ * @returns {{root: string, pluginName: string, pluginVersion: string,
+ * serverAdapter: string, serverPatch: string, executor: string, cli: string,
+ * schemas: string, workerSkill: string, workerSkillSha256: string,
+ * executorProtocolVersion: number,
+ * hostProtocolVersion: number, receiptSchemaVersion: number,
+ * requestProtocolVersion: number, supportedDshVersions: readonly string[],
+ * modelFacingTools: readonly string[], runtimeIdentity: object}}
+ */
+export function loadInstallation() {
+  const root = realpathSync(dirname(dirname(fileURLToPath(import.meta.url))));
+  const read = file => JSON.parse(readFileSync(join(root, file), 'utf8'));
+  const pkg = read('package.json');
+  const capabilities = read('capabilities.json');
+  const runtime = read('runtime.lock.json');
+  const workerSkill = join(root, 'skills/ggb-construction/worker.md');
+  const workerSkillSha256 = createHash('sha256')
+      .update(readFileSync(workerSkill)).digest('hex');
+  if (pkg.name !== 'ggb-plugins-dsh' ||
+      capabilities.toolVersion !== pkg.version ||
+      typeof runtime.version !== 'string' ||
+      !/^[a-f0-9]{64}$/u.test(runtime.sha256) ||
+      workerSkillSha256 !== capabilities.workerSkillSha256 ||
+      capabilities.requestProtocolVersion !== 2 ||
+      JSON.stringify(capabilities.modelFacingTools) !==
+          JSON.stringify(TOOL_NAMES)) {
+    throw new Error('ggb_installation_identity_invalid');
+  }
+  const paths = {serverAdapter: 'dsh/server.js',
+    serverPatch: 'dsh/server.patch.yml', executor: 'dsh/executor.js',
+    cli: 'dist/src/cli.js',
+    schemas: 'dist/src/host-protocol.js'};
+  for (const path of Object.values(paths)) {
+    if (!statSync(join(root, path)).isFile()) {
+      throw new Error('ggb_installation_resource_missing');
+    }
+  }
+  return {root, pluginName: pkg.name, pluginVersion: pkg.version,
+    ...Object.fromEntries(Object.entries(paths)
+        .map(([key, path]) => [key, join(root, path)])),
+    workerSkill, workerSkillSha256,
+    hostProtocolVersion: HOST_PROTOCOL_VERSION,
+    executorProtocolVersion: EXECUTOR_PROTOCOL_VERSION,
+    receiptSchemaVersion: RECEIPT_SCHEMA_VERSION,
+    requestProtocolVersion: 2, supportedDshVersions: SUPPORTED_DSH_VERSIONS,
+    modelFacingTools: TOOL_NAMES,
+    runtimeIdentity: {geogebraVersion: runtime.version,
+      geogebraSha256: runtime.sha256,
+      playwrightVersion: pkg.dependencies.playwright}};
+}
+
+/** Load the immutable Worker Skill before the first model request.
+ * @returns {string} Worker body, without YAML frontmatter or CLI injection.
+ */
+export function loadWorkerSkill() {
+  const installation = loadInstallation();
+  const raw = readFileSync(installation.workerSkill, 'utf8');
+  const body = raw.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/u, '').trim();
+  if (body === raw.trim() || Buffer.byteLength(body) > 16384 || !body) {
+    throw new Error('ggb_worker_skill_invalid');
+  }
+  const references = PRELOADED_REFERENCE_TOPICS
+    .map(topic => loadReference(topic).content.trim()).join('\n\n');
+  const combined = `${body}\n\n${references}`;
+  if (Buffer.byteLength(combined) > 6500) {
+    throw new Error('ggb_worker_skill_invalid');
+  }
+  return combined;
+}
+
+export {assertDshCompatibility};
+
+/** Check prepared runtime resources without launching a browser or installing. */
+export async function assertRuntimeReady() {
+  const installation = loadInstallation();
+  const runtime = JSON.parse(readFileSync(
+    join(installation.root, '.runtime/runtime.json'), 'utf8'));
+  if (runtime.version !== installation.runtimeIdentity.geogebraVersion ||
+      runtime.sha256 !== installation.runtimeIdentity.geogebraSha256) {
+    throw new Error('ggb_runtime_identity_mismatch');
+  }
+  const runtimeFile = join(installation.root,
+    '.runtime/GeoGebra/HTML5/5.0/web3d/web3d.nocache.js');
+  const loader = join(installation.root, '.runtime/GeoGebra/deployggb.js');
+  for (const file of [runtimeFile, loader]) {
+    if (!statSync(file).isFile() || statSync(file).size === 0) {
+      throw new Error('ggb_runtime_resource_missing');
+    }
+  }
+  const {createRequire} = await import('node:module');
+  const require = createRequire(join(installation.root, 'package.json'));
+  const playwright = require('playwright/package.json');
+  if (playwright.version !== installation.runtimeIdentity.playwrightVersion) {
+    throw new Error('ggb_playwright_identity_mismatch');
+  }
+  const {chromium} = await import('playwright');
+  const browser = chromium.executablePath();
+  if (!statSync(browser).isFile()) throw new Error('ggb_chromium_missing');
+  return {...installation.runtimeIdentity, browserExecutable: browser};
+}
+
+
+/** Read one fixed topic from this installation; no caller-supplied file path.
+ * @param {string} topic Published reference topic.
+ * @returns {{topic: string, content: string}} Complete bounded reference text.
+ */
+export function loadReference(topic) {
+  if (!REFERENCE_IDS.includes(topic)) {
+    throw new Error('ggb_reference_topic_invalid');
+  }
+  const part = REFERENCE_SECTIONS[topic];
+  const parent = part?.topic ?? topic;
+  const sections = {program: '原生构图程序',
+    verification: '通用核验', interactions: '呈现与交互', naming: '命名规则'};
+  const root = loadInstallation().root;
+  const file = parent === 'request' ? 'worker-request.md'
+    : parent === 'patterns' ? 'patterns.md' : 'capabilities.md';
+  const path = join(root, 'skills/ggb-construction/references', file);
+  const resolved = realpathSync(path);
+  const info = statSync(resolved);
+  if (!resolved.startsWith(realpathSync(root) + sep)
+    || !info.isFile() || info.size > 64 * 1024) {
+    throw new Error('ggb_reference_resource_invalid');
+  }
+  let content = readFileSync(resolved, 'utf8');
+  if (parent !== 'patterns' && parent !== 'request') {
+    content = sectionText(content, sections[parent], 2);
+  }
+  const level = parent === 'patterns' ? 2 : 3;
+  if (part) content = sectionText(content, part.heading, level);
+  else for (const section of Object.values(REFERENCE_SECTIONS)) {
+    if (section.topic === topic) sectionText(content, section.heading, level);
+  }
+  if (topic === 'request' && !content.trim()) {
+    throw new Error('ggb_reference_resource_invalid');
+  }
+  if (Buffer.byteLength(content) > LIMITS.referenceBytes) {
+    throw new Error('ggb_reference_resource_oversized');
+  }
+  return {topic, content};
+}
+
+/** Read complete fixed topics under one serialized-response budget.
+ * @param {string[]} topics Fixed names; duplicates keep their first order.
+ * @returns {{references: {topic: string, content: string}[]}} Complete texts.
+ */
+export function loadReferences(topics) {
+  const selected = parseReferenceTopics({references: topics});
+  if (!selected) throw new Error('ggb_reference_topics_invalid');
+  const result = {references: selected.map(loadReference)};
+  if (Buffer.byteLength(JSON.stringify(result)) > LIMITS.referenceBytes) {
+    throw new Error('ggb_reference_response_oversized');
+  }
+  return result;
+}
+
+/** Extract a complete fixed heading through its next peer or ancestor. */
+function sectionText(content, title, level) {
+  const heading = new RegExp(`^#{${level}}[ \\t]+${escapeRegExp(title)}`
+    + '[ \\t]*\\r?$', 'mu');
+  const matches = [...content.matchAll(new RegExp(heading.source, 'gmu'))];
+  if (matches.length !== 1) throw new Error('ggb_reference_section_missing');
+  const match = matches[0];
+  const start = match.index;
+  const end = start + match[0].length;
+  const next = new RegExp(`^#{1,${level}}[ \\t]+`, 'mu')
+    .exec(content.slice(end));
+  return content.slice(start, next ? end + next.index : undefined);
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+}
